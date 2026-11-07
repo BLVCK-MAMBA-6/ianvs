@@ -1,0 +1,10 @@
+{
+  "color": "yellow",
+  "commit": "85561a6a2ca203387fd7e8edd977be6fa444bd6f",
+  "example": "aoa",
+  "label": "status",
+  "message": "Example onGoing",
+  "schemaVersion": 1,
+  "status": "Example onGoing",
+  "validated_at": "2026-11-07T17:03:36.773673Z"
+}
