@@ -1,0 +1,63 @@
+name: PR 1036 Qwen CPU benchmark
+
+on:
+  push:
+    branches: [test/pr1036-qwen-e2e]
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: a40a532
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies from the README
+        run: |
+          git log -1 --oneline
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.txt resources/third_party/sedna-0.6.0.1-py3-none-any.whl
+          python -m pip install -e .
+          CMAKE_ARGS="-DGGML_NATIVE=OFF -DLLAMA_CURL=OFF" CMAKE_BUILD_PARALLEL_LEVEL=4 \
+            python -m pip install --no-binary=llama-cpp-python \
+            -r examples/llm-edge-benchmark-suite/single_task_bench_with_compression/requirements.txt
+
+      - name: Download Qwen FP16 and the quantizer
+        run: |
+          mkdir -p models/qwen llama.cpp
+          curl --fail --location --retry 3 \
+            https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-fp16.gguf \
+            --output models/qwen/qwen2.5-0.5b-instruct-fp16.gguf
+          curl --fail --location --retry 3 \
+            https://github.com/ggml-org/llama.cpp/releases/download/b12110/llama-b12110-bin-ubuntu-x64.tar.gz \
+            --output /tmp/ianvs-llama-cpp.tar.gz
+          tar --extract --gzip --file /tmp/ianvs-llama-cpp.tar.gz \
+            --no-same-owner --strip-components=1 --directory llama.cpp
+
+      - name: Run the benchmark and verify outputs
+        run: |
+          source .venv/bin/activate
+          ianvs -f examples/llm-edge-benchmark-suite/single_task_bench_with_compression/benchmarkingjob.yaml \
+            2>&1 | tee /tmp/ianvs-pr1036-qwen.log
+          grep -F 'Loading compressed GGUF' /tmp/ianvs-pr1036-qwen.log | grep -i '_q8_0\.gguf'
+          find models/qwen -type f -iname '*_q8_0.gguf' -size +0c -print -quit | grep .
+          for result in selected_rank.csv all_rank.csv; do
+            path=$(find workspace/benchmarkingjob -type f -name "$result" -size +0c -print -quit)
+            test -n "$path"
+            echo "--- $path ---"
+            cat "$path"
+          done
